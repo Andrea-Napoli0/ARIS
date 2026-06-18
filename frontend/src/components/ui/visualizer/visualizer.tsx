@@ -17,7 +17,7 @@ interface HologramUIProps {
 // Aggiorna solo il componente JarvisParticles nel tuo codice precedente
 const JarvisParticles: React.FC<{ mode: JarvisMode; color: string }> = ({ mode, color }) => {
   const pointsRef = useRef<THREE.Points>(null);
-  const count = 4000; // AUMENTATO: Più densità per l'effetto nebulosa
+  const count = 0; // AUMENTATO: Più densità per l'effetto nebulosa
 
   const baseData = useMemo(() => {
     const data = new Float32Array(count * 4);
@@ -44,7 +44,7 @@ const JarvisParticles: React.FC<{ mode: JarvisMode; color: string }> = ({ mode, 
     const p = pointsRef.current.geometry.attributes.position.array as Float32Array;
 
     // Parametri dinamici sincronizzati
-    let speed = 1.0; let waveIntensity = 0.05; let breathAmp = 0.02; let breathSpeed = 1.5;
+    let speed = .5; let waveIntensity = 0.01; let breathAmp = 0.01; let breathSpeed = 0.2;
     if (mode === 'listening') { speed = 2.0; waveIntensity = 0.08; breathAmp = 0.05; breathSpeed = 3.0; }
     else if (mode === 'speaking') { speed = 5.0; waveIntensity = 0.18; breathAmp = 0.08; breathSpeed = 6.0; }
     else if (mode === 'error') { speed = 12.0; waveIntensity = 0.15; breathAmp = 0.03; breathSpeed = 12.0; }
@@ -107,10 +107,10 @@ const JarvisOuterRing: React.FC<{ mode: JarvisMode; color: string }> = ({ mode, 
     const p1 = layer1Ref.current.geometry.attributes.position.array as Float32Array;
     const p2 = layer2Ref.current.geometry.attributes.position.array as Float32Array;
 
-    let speed = 1.0;          
-    let waveIntensity = 0.05; 
-    let breathAmp = 0.02;     
-    let breathSpeed = 1.5;    
+    let speed = 0.0;          
+    let waveIntensity = 0.0; 
+    let breathAmp = 0.0;     
+    let breathSpeed = 0.0;    
 
     if (mode === 'listening') {
       speed = 2.0; waveIntensity = 0.08; breathAmp = 0.05; breathSpeed = 3.0;
@@ -187,7 +187,7 @@ const HologramUI: React.FC<HologramUIProps> = ({ mode, color }) => {
 
   useFrame((state, delta) => {
     const t = state.clock.getElapsedTime();
-    const speedMultiplier = mode === 'speaking' ? 2.2 : mode === 'listening' ? 1.6 : mode === 'error' ? 0.4 : 1.0;
+    const speedMultiplier = mode === 'speaking' ? 2.2 : mode === 'listening' ? 1.6 : mode === 'error' ? 0.4 : 0.1;
 
     if (coreRef.current) {
       coreRef.current.rotation.y += delta * 0.25 * speedMultiplier;

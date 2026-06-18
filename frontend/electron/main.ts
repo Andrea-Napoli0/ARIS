@@ -6,15 +6,15 @@ const __dirname = path.dirname(
   fileURLToPath(import.meta.url)
 );
 
-const isDev = !!process.env.VITE_DEV_SERVER_URL;
+// const isDev = !!process.env.VITE_DEV_SERVER_URL;
 
 function createWindow() {
   const win = new BrowserWindow({
-  width: isDev ? 1600 : undefined,
-  height: isDev ? 900 : undefined,
+  width: 1920,//isDev ? 1600 : undefined,
+  height: 1080,//isDev ? 900 : undefined,
 
-  fullscreen: !isDev,
-  frame: !isDev ? false : true,
+  fullscreen:true,//!isDev,
+  frame: true,//!isDev ? false : true,
 
   webPreferences: {
     preload: path.join(__dirname, "preload.mjs"),
