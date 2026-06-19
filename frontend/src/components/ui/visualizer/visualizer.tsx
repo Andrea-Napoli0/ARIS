@@ -1,21 +1,20 @@
-import React, { useRef, useMemo, useState } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Icosahedron, Ring, Torus } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
-
-type JarvisMode = 'error' | 'idle' | 'speaking' | 'listening' | "thinking";
+import { useARISMode, type ARISMode} from '@/store/ArisStore';
 
 interface HologramUIProps {
-  mode: JarvisMode;
+  mode: ARISMode;
   color: string;
 }
 
 // ==========================================
 // 1. COMPONENTE: NUBE DI PARTICELLE FLUIDE (Video Accurate)
 // ==========================================
-// Aggiorna solo il componente JarvisParticles nel tuo codice precedente
-const JarvisParticles: React.FC<{ mode: JarvisMode; color: string }> = ({ mode, color }) => {
+// Aggiorna solo il componente ARISParticles nel tuo codice precedente
+const ARISParticles: React.FC<{ mode: ARISMode; color: string }> = ({ mode, color }) => {
   const pointsRef = useRef<THREE.Points>(null);
   const count = 0; // AUMENTATO: Più densità per l'effetto nebulosa
 
@@ -48,6 +47,7 @@ const JarvisParticles: React.FC<{ mode: JarvisMode; color: string }> = ({ mode, 
     if (mode === 'listening') { speed = 2.0; waveIntensity = 0.08; breathAmp = 0.05; breathSpeed = 3.0; }
     else if (mode === 'speaking') { speed = 5.0; waveIntensity = 0.18; breathAmp = 0.08; breathSpeed = 6.0; }
     else if (mode === 'error') { speed = 12.0; waveIntensity = 0.15; breathAmp = 0.03; breathSpeed = 12.0; }
+    else if (mode === 'thinking') { speed = 1.0; waveIntensity = 0.13; breathAmp = 0.09; breathSpeed = 2.0; }
 
     const globalBreath = Math.sin(t * breathSpeed) * breathAmp;
 
@@ -90,7 +90,7 @@ const JarvisParticles: React.FC<{ mode: JarvisMode; color: string }> = ({ mode, 
 // ==========================================
 // 2. COMPONENTE: DOPPIO ANELLO ONDULATO CONTENUTO
 // ==========================================
-const JarvisOuterRing: React.FC<{ mode: JarvisMode; color: string }> = ({ mode, color }) => {
+const ARISOuterRing: React.FC<{ mode: ARISMode; color: string }> = ({ mode, color }) => {
   const layer1Ref = useRef<THREE.LineLoop>(null);
   const layer2Ref = useRef<THREE.LineLoop>(null);
   const pointsCount = 180;
@@ -118,7 +118,7 @@ const JarvisOuterRing: React.FC<{ mode: JarvisMode; color: string }> = ({ mode, 
       speed = 5.0; waveIntensity = 0.18; breathAmp = 0.08; breathSpeed = 6.0;
     } else if (mode === 'error') {
       speed = 12.0; waveIntensity = 0.15; breathAmp = 0.03; breathSpeed = 12.0;
-    }
+    } else if (mode === 'thinking') { speed = 1.0; waveIntensity = 0.13; breathAmp = 0.09; breathSpeed = 2.0; }
 
     const baseRadius1 = 2.8;
     const baseRadius2 = 2.86; 
@@ -187,7 +187,7 @@ const HologramUI: React.FC<HologramUIProps> = ({ mode, color }) => {
 
   useFrame((state, delta) => {
     const t = state.clock.getElapsedTime();
-    const speedMultiplier = mode === 'speaking' ? 2.2 : mode === 'listening' ? 1.6 : mode === 'error' ? 0.4 : 0.1;
+    const speedMultiplier = mode === 'speaking' ? 2.2 : mode === 'listening' ? 1.6 : mode === 'error' ? 0.4 : mode === "thinking" ? 0.6 : 0.1;
 
     if (coreRef.current) {
       coreRef.current.rotation.y += delta * 0.25 * speedMultiplier;
@@ -226,8 +226,8 @@ const HologramUI: React.FC<HologramUIProps> = ({ mode, color }) => {
       </Ring>
 
       {/* COMPONENTI DEL VIDEO */}
-      <JarvisParticles mode={mode} color={color} />
-      <JarvisOuterRing mode={mode} color={color} />
+      <ARISParticles mode={mode} color={color} />
+      <ARISOuterRing mode={mode} color={color} />
     </group>
   );
 };
@@ -236,10 +236,10 @@ const HologramUI: React.FC<HologramUIProps> = ({ mode, color }) => {
 // MAIN CONTENT & CONTROLLI
 // ==========================================
 export default function Visualizer() {
-  const [mode, setMode] = useState<JarvisMode>('idle');
+  const mode = useARISMode((state) => state.mode)
+  const setMode = useARISMode((state) => state.setMode)
 
-  // Ciano stile Jarvis
-  const themeColor = mode === 'error' ? '#ff2a2a' : '#00e5ff';
+  const themeColor = mode === 'error' ? '#ff2a2a' : mode === 'thinking' ? '#0090ff' : '#00e5ff';
   const bgColor = mode === 'error' ? '#080101' : '#000407';
 
   return (
@@ -247,34 +247,36 @@ export default function Visualizer() {
       className="relative w-full h-screen flex justify-center items-center overflow-hidden transition-colors duration-700"
       style={{ backgroundColor: bgColor }}
     >
-      <div 
-        className="absolute left-6 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-50 bg-black/60 backdrop-blur-xl p-4 rounded-xl border transition-colors duration-500"
-        style={{ borderColor: `${themeColor}22` }}
-      >
+      {import.meta.env.DEV && (
         <div 
-          className="text-[9px] font-mono tracking-widest text-center opacity-50 mb-2 font-bold transition-colors duration-500" 
-          style={{ color: themeColor }}
+          className="absolute left-6 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-50 bg-black/60 backdrop-blur-xl p-4 rounded-xl border transition-colors duration-500"
+          style={{ borderColor: `${themeColor}22` }}
         >
-          JARVIS_FULL_SYSTEM
-        </div>
-        
-        {(['idle', 'listening', 'speaking', 'error'] as JarvisMode[]).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            className="px-4 py-2 rounded-lg border text-[11px] uppercase tracking-widest font-mono transition-all duration-300 w-36 text-left hover:bg-white/5"
-            style={{
-              backgroundColor: mode === m ? themeColor : 'transparent',
-              color: mode === m ? '#000000' : `${themeColor}cc`,
-              borderColor: mode === m ? themeColor : `${themeColor}33`,
-              fontWeight: mode === m ? 'bold' : 'normal',
-              boxShadow: mode === m ? `0 0 25px ${themeColor}55` : 'none'
-            }}
+          <div 
+            className="text-[9px] font-mono tracking-widest text-center opacity-50 mb-2 font-bold transition-colors duration-500" 
+            style={{ color: themeColor }}
           >
-            {m === mode ? `> ${m}` : `  ${m}`}
-          </button>
-        ))}
-      </div>
+            JARVIS_FULL_SYSTEM
+          </div>
+          
+          {(['idle', 'listening', 'speaking', 'error', 'thinking'] as ARISMode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className="px-4 py-2 rounded-lg border text-[11px] uppercase tracking-widest font-mono transition-all duration-300 w-36 text-left hover:bg-white/5"
+              style={{
+                backgroundColor: mode === m ? themeColor : 'transparent',
+                color: mode === m ? '#000000' : `${themeColor}cc`,
+                borderColor: mode === m ? themeColor : `${themeColor}33`,
+                fontWeight: mode === m ? 'bold' : 'normal',
+                boxShadow: mode === m ? `0 0 25px ${themeColor}55` : 'none'
+              }}
+            >
+              {m === mode ? `> ${m}` : `  ${m}`}
+            </button>
+          ))}
+        </div>
+      )}
 
       <Canvas camera={{ position: [0, 0, 7.0], fov: 60 }}>
         <HologramUI mode={mode} color={themeColor} />

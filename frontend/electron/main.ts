@@ -13,7 +13,7 @@ function createWindow() {
   width: 1920,//isDev ? 1600 : undefined,
   height: 1080,//isDev ? 900 : undefined,
 
-  fullscreen:true,//!isDev,
+  fullscreen:false,//!isDev,
   frame: true,//!isDev ? false : true,
 
   webPreferences: {
