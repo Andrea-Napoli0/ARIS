@@ -29,7 +29,7 @@ import { SettingsSection } from "./sections/settingSections";
 
 export function SettingSidebar(props: React.ComponentProps<typeof Sidebar>) {
   return (
-    <Sidebar className="bg-black text-white"  {...props}>
+    <Sidebar className="bg-black text-white " side="right"   {...props}>
       <SidebarHeader className="bg-black p-7 flex">
         <h2 className="text-lg font-bold">A.R.I.S. CONTROL PANEL</h2>
       </SidebarHeader>

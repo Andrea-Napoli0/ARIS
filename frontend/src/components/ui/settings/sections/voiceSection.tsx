@@ -22,13 +22,13 @@ export function VoiceSection() {
       {/* Enable Voice */}
       <div className="flex justify-between text-white">
         <span>Enable Voice</span>
-        <Switch className="data-[state=checked]:bg-green-600!" />
+        <Switch className="data-[state=checked]:bg-green-500! data-[state=unchecked]:bg-gray-700!" />
       </div>
 
       {/* Push To Talk */}
       <div className="flex justify-between text-white">
         <span>Push To Talk</span>
-        <Switch className="data-[state=checked]:bg-green-600!" />
+        <Switch className="data-[state=checked]:bg-green-500! data-[state=unchecked]:bg-gray-700!" />
       </div>
 
       {/* Select Microfono */}

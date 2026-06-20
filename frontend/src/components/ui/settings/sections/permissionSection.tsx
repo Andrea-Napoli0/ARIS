@@ -6,11 +6,11 @@ export function PermissionSection() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <Label htmlFor="fs-access" className="text-sm font-medium">Filesystem Access</Label>
-        <Switch id="fs-access" className="data-[state=checked]:bg-green-600!" />
+        <Switch id="fs-access" className="data-[state=checked]:bg-green-500! data-[state=unchecked]:bg-gray-700!" />
       </div>
       <div className="flex items-center justify-between">
         <Label htmlFor="network-access" className="text-sm font-medium">Network Access</Label>
-        <Switch id="network-access" className="data-[state=checked]:bg-green-600!" />
+        <Switch id="network-access" className="data-[state=checked]:bg-green-500! data-[state=unchecked]:bg-gray-700!" />
       </div>
     </div>
   );

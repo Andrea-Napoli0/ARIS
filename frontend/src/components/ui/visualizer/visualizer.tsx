@@ -1,4 +1,4 @@
-import React, { useRef, useMemo } from 'react';
+import { useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Icosahedron, Ring, Torus } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -11,169 +11,175 @@ interface HologramUIProps {
 }
 
 // ==========================================
-// 1. COMPONENTE: NUBE DI PARTICELLE FLUIDE (Video Accurate)
+// SHARED: Parametri modalità
 // ==========================================
-// Aggiorna solo il componente ARISParticles nel tuo codice precedente
-const ARISParticles: React.FC<{ mode: ARISMode; color: string }> = ({ mode, color }) => {
-  const pointsRef = useRef<THREE.Points>(null);
-  const count = 0; // AUMENTATO: Più densità per l'effetto nebulosa
+const MODE_PARAMS = {
+  idle:      { speed: 0.5,  waveIntensity: 0.01, breathAmp: 0.01, breathSpeed: 0.2 },
+  listening: { speed: 2.0,  waveIntensity: 0.08, breathAmp: 0.05, breathSpeed: 3.0 },
+  speaking:  { speed: 5.0,  waveIntensity: 0.18, breathAmp: 0.08, breathSpeed: 6.0 },
+  error:     { speed: 12.0, waveIntensity: 0.15, breathAmp: 0.03, breathSpeed: 12.0 },
+  thinking:  { speed: 1.0,  waveIntensity: 0.13, breathAmp: 0.09, breathSpeed: 2.0 },
+} as const;
 
-  const baseData = useMemo(() => {
-    const data = new Float32Array(count * 4);
-    for (let i = 0; i < count; i++) {
-      // CONFINAMENTO RIGIDO: Raggio tra 0.8 (nucleo) e 2.7 (limite interno dell'outer ring)
-      const radius = 0.8 + Math.random() * 1.9; 
-      const theta = Math.random() * Math.PI * 2;
-      const z = (Math.random() - 0.5) * 0.4;
-      
-      data[i * 4 + 0] = radius;
-      data[i * 4 + 1] = theta;
-      data[i * 4 + 2] = z;
-      data[i * 4 + 3] = Math.random();
+// ==========================================
+// Shader per l'outer ring ondulato (GPU offload)
+// ==========================================
+
+const ringVertShader = `
+  uniform float uTime;
+  uniform float uSpeed;
+  uniform float uWaveIntensity;
+  uniform float uBreathAmp;
+  uniform float uBreathSpeed;
+  uniform float uBaseRadius;
+  uniform float uOpacity;
+  uniform float uDelay;
+  uniform float uBreathScale;
+
+  attribute float aTheta;
+
+  varying float vOpacity;
+
+  void main() {
+    float theta = aTheta;
+    float t = uTime;
+
+    float tw = t * uSpeed;
+    float tw2 = t * uSpeed * 2.1;
+    float tw1_3 = t * uSpeed * 1.3;
+
+    float td = (t - uDelay) * uSpeed;
+    float td2 = (t - uDelay) * uSpeed * 2.1;
+    float td1_3 = (t - uDelay) * uSpeed * 1.3;
+
+    float globalBreath = sin(t * uBreathSpeed) * uBreathAmp;
+
+    float waveA = sin(theta * 5.0 + tw) * 0.4;
+    float waveB = cos(theta * 9.0 - tw1_3) * 0.25;
+    float waveC = sin(theta * 17.0 + tw2) * 0.12;
+
+    float waveA_d = sin(theta * 5.0 + td) * 0.4;
+    float waveB_d = cos(theta * 9.0 - td1_3) * 0.25;
+    float waveC_d = sin(theta * 17.0 + td2) * 0.12;
+
+    float envelope = sin(theta * 2.0 + t * 0.5);
+    float envScale = 1.0 + envelope * 0.5;
+
+    float displacement = (waveA + waveB + waveC) * uWaveIntensity * envScale;
+    float delayedDisplacement = (waveA_d + waveB_d + waveC_d) * uWaveIntensity * envScale;
+
+    float finalDisp = uDelay > 0.0 ? delayedDisplacement : displacement;
+    float radius = uBaseRadius + globalBreath * uBreathScale + finalDisp;
+
+    vec3 pos = vec3(cos(theta) * radius, sin(theta) * radius, uDelay > 0.0 ? -0.02 : 0.0);
+
+    vOpacity = uOpacity;
+
+    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+
+const ringFragShader = `
+  uniform vec3 uColor;
+
+  varying float vOpacity;
+
+  void main() {
+    gl_FragColor = vec4(uColor, vOpacity);
+  }
+`;
+
+const RingLine: React.FC<{
+  baseRadius: number;
+  delay: number;
+  breathScale: number;
+  opacity: number;
+  params: typeof MODE_PARAMS[keyof typeof MODE_PARAMS];
+  time: React.MutableRefObject<number>;
+  color: string;
+}> = ({ baseRadius, delay, breathScale, opacity, params, time, color }) => {
+  const ref = useRef<THREE.LineLoop>(null);
+  const POINTS = 180;
+
+  const [geometry, uniforms] = useMemo(() => {
+    const geo = new THREE.BufferGeometry();
+    const thetaArr = new Float32Array(POINTS);
+    const positions = new Float32Array(POINTS * 3);
+    const step = (Math.PI * 2) / POINTS;
+    for (let i = 0; i < POINTS; i++) {
+      thetaArr[i] = i * step;
+      positions[i * 3] = Math.cos(thetaArr[i]) * baseRadius;
+      positions[i * 3 + 1] = Math.sin(thetaArr[i]) * baseRadius;
+      positions[i * 3 + 2] = delay > 0 ? -0.02 : 0;
     }
-    return data;
-  }, []);
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('aTheta', new THREE.BufferAttribute(thetaArr, 1));
 
-  const positions = useMemo(() => new Float32Array(count * 3), []);
+    const u = {
+      uTime: { value: 0 },
+      uSpeed: { value: params.speed },
+      uWaveIntensity: { value: params.waveIntensity },
+      uBreathAmp: { value: params.breathAmp },
+      uBreathSpeed: { value: params.breathSpeed },
+      uBaseRadius: { value: baseRadius },
+      uOpacity: { value: opacity },
+      uDelay: { value: delay },
+      uBreathScale: { value: breathScale },
+      uColor: { value: new THREE.Color(color) },
+    };
 
-  useFrame((state, delta) => {
-    const t = state.clock.getElapsedTime();
-    if (!pointsRef.current) return;
+    return [geo, u] as const;
+  }, [baseRadius, breathScale, color, delay, opacity, params.breathAmp, params.breathSpeed, params.speed, params.waveIntensity]);
 
-    const p = pointsRef.current.geometry.attributes.position.array as Float32Array;
+  uniforms.uSpeed.value = params.speed;
+  uniforms.uWaveIntensity.value = params.waveIntensity;
+  uniforms.uBreathAmp.value = params.breathAmp;
+  uniforms.uBreathSpeed.value = params.breathSpeed;
+  uniforms.uColor.value.set(color);
 
-    // Parametri dinamici sincronizzati
-    let speed = .5; let waveIntensity = 0.01; let breathAmp = 0.01; let breathSpeed = 0.2;
-    if (mode === 'listening') { speed = 2.0; waveIntensity = 0.08; breathAmp = 0.05; breathSpeed = 3.0; }
-    else if (mode === 'speaking') { speed = 5.0; waveIntensity = 0.18; breathAmp = 0.08; breathSpeed = 6.0; }
-    else if (mode === 'error') { speed = 12.0; waveIntensity = 0.15; breathAmp = 0.03; breathSpeed = 12.0; }
-    else if (mode === 'thinking') { speed = 1.0; waveIntensity = 0.13; breathAmp = 0.09; breathSpeed = 2.0; }
-
-    const globalBreath = Math.sin(t * breathSpeed) * breathAmp;
-
-    for (let i = 0; i < count; i++) {
-      const rBase = baseData[i * 4 + 0];
-      const theta = baseData[i * 4 + 1];
-      
-      // Calcolo della deformazione armonica
-      const wave = (Math.sin(theta * 5 + t * speed) * 0.4 + Math.cos(theta * 9 - t * speed * 1.3) * 0.25) * waveIntensity;
-      
-      // Confinamento: Le particelle vicino al centro (0.8) non si muovono, quelle vicine all'anello (2.7) seguono l'onda
-      const influence = (rBase - 0.8) / 1.9; 
-      const rCurrent = rBase + (globalBreath + wave) * influence;
-
-      p[i * 3 + 0] = Math.cos(theta) * rCurrent;
-      p[i * 3 + 1] = Math.sin(theta) * rCurrent;
-      p[i * 3 + 2] = baseData[i * 4 + 2] + Math.sin(t * 2 + baseData[i * 4 + 3] * 10) * 0.02;
-    }
-
-    pointsRef.current.geometry.attributes.position.needsUpdate = true;
-    pointsRef.current.rotation.z += delta * 0.03;
+  useFrame(() => {
+    uniforms.uTime.value = time.current;
   });
 
+  const material = useMemo(() => {
+    const mat = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader: ringVertShader,
+      fragmentShader: ringFragShader,
+      transparent: true,
+      depthWrite: false,
+    });
+    return mat;
+  }, [uniforms]);
+
   return (
-    <points ref={pointsRef}>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
-      </bufferGeometry>
-      <pointsMaterial 
-        size={0.02} // Particelle leggermente più piccole per mantenere pulita la densità
-        color={color} 
-        transparent 
-        opacity={0.4} 
-        blending={THREE.AdditiveBlending}
-        depthWrite={false}
-      />
-    </points>
+    <lineLoop ref={ref} geometry={geometry} material={material} />
   );
 };
-// ==========================================
-// 2. COMPONENTE: DOPPIO ANELLO ONDULATO CONTENUTO
-// ==========================================
-const ARISOuterRing: React.FC<{ mode: ARISMode; color: string }> = ({ mode, color }) => {
-  const layer1Ref = useRef<THREE.LineLoop>(null);
-  const layer2Ref = useRef<THREE.LineLoop>(null);
-  const pointsCount = 180;
 
-  const [pos1, pos2] = useMemo(() => [
-    new Float32Array(pointsCount * 3),
-    new Float32Array(pointsCount * 3)
-  ], [pointsCount]);
+const ARISOuterRing: React.FC<{ mode:
+ ARISMode; color: string }> = ({ mode, color }) => {
+  const timeRef = useRef(0);
+  const params = MODE_PARAMS[mode];
+  const layer1Ref = useRef<THREE.Group>(null);
+  const layer2Ref = useRef<THREE.Group>(null);
 
   useFrame((state, delta) => {
-    const t = state.clock.getElapsedTime();
-    if (!layer1Ref.current || !layer2Ref.current) return;
-
-    const p1 = layer1Ref.current.geometry.attributes.position.array as Float32Array;
-    const p2 = layer2Ref.current.geometry.attributes.position.array as Float32Array;
-
-    let speed = 0.0;          
-    let waveIntensity = 0.0; 
-    let breathAmp = 0.0;     
-    let breathSpeed = 0.0;    
-
-    if (mode === 'listening') {
-      speed = 2.0; waveIntensity = 0.08; breathAmp = 0.05; breathSpeed = 3.0;
-    } else if (mode === 'speaking') {
-      speed = 5.0; waveIntensity = 0.18; breathAmp = 0.08; breathSpeed = 6.0;
-    } else if (mode === 'error') {
-      speed = 12.0; waveIntensity = 0.15; breathAmp = 0.03; breathSpeed = 12.0;
-    } else if (mode === 'thinking') { speed = 1.0; waveIntensity = 0.13; breathAmp = 0.09; breathSpeed = 2.0; }
-
-    const baseRadius1 = 2.8;
-    const baseRadius2 = 2.86; 
-    const globalBreath = Math.sin(t * breathSpeed) * breathAmp;
-
-    for (let i = 0; i < pointsCount; i++) {
-      const theta = (i / pointsCount) * Math.PI * 2;
-
-      const waveA = Math.sin(theta * 5 + t * speed) * 0.4;
-      const waveB = Math.cos(theta * 9 - t * speed * 1.3) * 0.25;
-      const waveC = Math.sin(theta * 17 + t * speed * 2.1) * 0.12;
-      
-      const envelope = Math.sin(theta * 2 + t * 0.5); 
-      const totalDisplacement = (waveA + waveB + waveC) * waveIntensity * (1.0 + envelope * 0.5);
-
-      const r1 = baseRadius1 + globalBreath + totalDisplacement;
-      p1[i * 3] = Math.cos(theta) * r1;
-      p1[i * 3 + 1] = Math.sin(theta) * r1;
-      p1[i * 3 + 2] = 0;
-
-      const delayedDisplacement = (
-        Math.sin(theta * 5 + (t - 0.08) * speed) * 0.4 + 
-        Math.cos(theta * 9 - (t - 0.08) * speed * 1.3) * 0.25 + 
-        Math.sin(theta * 17 + (t - 0.08) * speed * 2.1) * 0.12
-      ) * waveIntensity * (1.0 + envelope * 0.5);
-
-      const r2 = baseRadius2 + (globalBreath * 0.9) + delayedDisplacement;
-      p2[i * 3] = Math.cos(theta) * r2;
-      p2[i * 3 + 1] = Math.sin(theta) * r2;
-      p2[i * 3 + 2] = -0.02;
-    }
-
-    layer1Ref.current.geometry.attributes.position.needsUpdate = true;
-    layer2Ref.current.geometry.attributes.position.needsUpdate = true;
-
-    layer1Ref.current.rotation.z += delta * 0.05;
-    layer2Ref.current.rotation.z -= delta * 0.03;
+    timeRef.current = state.clock.getElapsedTime();
+    if (layer1Ref.current) layer1Ref.current.rotation.z += 0.05 * delta;
+    if (layer2Ref.current) layer2Ref.current.rotation.z -= 0.03 * delta;
   });
 
   return (
-    <group>
-      <lineLoop ref={layer1Ref}>
-        <bufferGeometry>
-          <bufferAttribute attach="attributes-position" count={pointsCount} array={pos1} itemSize={3} />
-        </bufferGeometry>
-        <lineBasicMaterial color={color} transparent opacity={0.9} linewidth={2} />
-      </lineLoop>
-
-      <lineLoop ref={layer2Ref}>
-        <bufferGeometry>
-          <bufferAttribute attach="attributes-position" count={pointsCount} array={pos2} itemSize={3} />
-        </bufferGeometry>
-        <lineBasicMaterial color={color} transparent opacity={0.4} linewidth={1} />
-      </lineLoop>
-    </group>
+    <>
+      <group ref={layer1Ref}>
+        <RingLine baseRadius={2.8} delay={0} breathScale={1.0} opacity={0.9} params={params} time={timeRef} color={color} />
+      </group>
+      <group ref={layer2Ref}>
+        <RingLine baseRadius={2.86} delay={0.08} breathScale={0.9} opacity={0.4} params={params} time={timeRef} color={color} />
+      </group>
+    </>
   );
 };
 
@@ -195,12 +201,12 @@ const HologramUI: React.FC<HologramUIProps> = ({ mode, color }) => {
       const coreScale = mode === 'speaking' ? 1 + Math.abs(Math.sin(t * 10)) * 0.05 : 1 + Math.sin(t * 2) * 0.02;
       coreRef.current.scale.setScalar(coreScale);
     }
-    
+
     if (midRingsRef.current) {
       midRingsRef.current.rotation.z -= delta * 0.2 * speedMultiplier;
       midRingsRef.current.rotation.x = Math.sin(t * 0.6) * 0.05;
     }
-    
+
     if (subRingRef.current) {
       subRingRef.current.rotation.z -= delta * 0.4 * speedMultiplier;
     }
@@ -225,8 +231,6 @@ const HologramUI: React.FC<HologramUIProps> = ({ mode, color }) => {
         <meshBasicMaterial color={color} wireframe transparent opacity={0.15} />
       </Ring>
 
-      {/* COMPONENTI DEL VIDEO */}
-      <ARISParticles mode={mode} color={color} />
       <ARISOuterRing mode={mode} color={color} />
     </group>
   );
@@ -243,22 +247,22 @@ export default function Visualizer() {
   const bgColor = mode === 'error' ? '#080101' : '#000407';
 
   return (
-    <div 
+    <div
       className="relative w-full h-screen flex justify-center items-center overflow-hidden transition-colors duration-700"
       style={{ backgroundColor: bgColor }}
     >
       {import.meta.env.DEV && (
-        <div 
+        <div
           className="absolute left-6 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-50 bg-black/60 backdrop-blur-xl p-4 rounded-xl border transition-colors duration-500"
           style={{ borderColor: `${themeColor}22` }}
         >
-          <div 
-            className="text-[9px] font-mono tracking-widest text-center opacity-50 mb-2 font-bold transition-colors duration-500" 
+          <div
+            className="text-[9px] font-mono tracking-widest text-center opacity-50 mb-2 font-bold transition-colors duration-500"
             style={{ color: themeColor }}
           >
             JARVIS_FULL_SYSTEM
           </div>
-          
+
           {(['idle', 'listening', 'speaking', 'error', 'thinking'] as ARISMode[]).map((m) => (
             <button
               key={m}
@@ -280,13 +284,13 @@ export default function Visualizer() {
 
       <Canvas camera={{ position: [0, 0, 7.0], fov: 60 }}>
         <HologramUI mode={mode} color={themeColor} />
-        
+
         <EffectComposer enableNormalPass>
-          <Bloom 
-            luminanceThreshold={0.05} 
-            luminanceSmoothing={0.9} 
-            intensity={mode === 'error' ? 2.5 : 1.8} 
-            mipmapBlur 
+          <Bloom
+            luminanceThreshold={0.05}
+            luminanceSmoothing={0.9}
+            intensity={mode === 'error' ? 2.5 : 1.8}
+            mipmapBlur
           />
         </EffectComposer>
       </Canvas>
